@@ -1,0 +1,5 @@
+Pkg.add("DifferentialEquations")
+Pkg.add("MAT")
+Pkg.add("HDF5")
+Pkg.add("Plots")
+Pkg.add("StatPlots")
