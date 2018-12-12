@@ -1,12 +1,59 @@
+import StatsBase.mode
+function mode(dens::UnivariateKDE)
+    ind=findmax(dens.density)[2]
+    dens.x[ind]
+end
+
+function mode_univar(samp)
+  md=Array{Float64}(undef,size(samp)[1])
+  for i in 1:size(samp)[1]
+    dens=kde(samp[i,:])
+    md[i]=mode(dens)
+  end
+  return(md)
+end
+
+function extract_ml_particle(fit::ABCfit,model)
+  temp=fit.pts[model,end]
+  md=mode_univar(temp)
+  sepmat=broadcast(-,temp,md)
+  for i in 1:size(sepmat)[1]
+    sepmat[i,:]=sepmat[i,:]./std(sepmat[i,:])
+  end
+  dists=sqrt.(sum(sepmat.^2,dims=1))
+  ind=findmin(dists)
+  return((temp[:,ind[2][2]],ind[1]))
+end
+
 function intercept_cont(dat)
   fit=linreg(dat[:,2],dat[:,1])
   return(size(dat)[1]*fit[1]/(size(dat)[1]*fit[1]+sum(fit[2].*dat[:,2])))
 end
 
+function ms_ci(fit::ABCfit)
+    p=fit.p
+    nm=size(p)[1]
+    out=Array{Float64}(nm)
+    inds=fit.epsilon.<fit.epsilon[end]*4
+    for i in 1:nm
+        out[i]=std(p[i,inds])
+    end
+    return(out)
+end
+
+function ms_ci_boot(fit::ABCfit)
+    nm=size(p)[1]
+    out=Array{Float64}(nm)
+    inds=fit.epsilon.<fit.epsilon[end]*4
+    for i in 1:nm
+        out[i]=std(p[i,inds])
+    end
+    return(out)
+end
 
 function boot_sub(d2,stat,r=1000)
   l=size(d2)[1]
-  bootstrp=@parallel (x,y)->vcat(x,y) for i in 1:r
+  bootstrp=@distributed (x,y)->vcat(x,y) for i in 1:r
  d2[sample(1:size(d2)[1],size(d2)[1],replace=true),:]
 end
 stats=zeros(r)
@@ -318,6 +365,9 @@ end
 
 @recipe f(::Type{KernelDensity.UnivariateKDE}, y::KernelDensity.UnivariateKDE) = y.x, y.density
 
+import Distributions.rand
+import Distributions.pdf
+
 function rand(x::Vector)
   y=zeros(length(x))
   for i in 1:length(x)
@@ -327,7 +377,7 @@ function rand(x::Vector)
 end
 
 function pdf(x::Vector,z::Vector)
-  y=Vector(length(x))
+  y=Vector(undef,length(x))
   for i in 1:length(x)
     y[i]=pdf(x[i],z[i])
   end
