@@ -1,4 +1,5 @@
 using Distributions
+using LinearAlgebra
 #rejection samplerm (for first iteration)
 function init(models,expd,np,rho)
   d=Inf
@@ -349,9 +350,7 @@ function APMC_KDE(N,expd,models,rho,;names=Vector[[string("parameter",i) for i i
   return(samp)
 end
 
-function APMC_KDE_adpt(N,expd,models,rho,;names=Vector[[string("parameter",i) for i in 1:length(models[m])] for m in 1:length(models)],prop=0.5,paccmin=0.02,ecv=0.1,B=10,wks=4-length(workers()))
-  addprocs(wks)
-  @everywhere include(joinpath(homedir(),"Box Sync","Dropbox","FishProjectR","julia","juliarc.jl"))
+function APMC_KDE_adpt(N,expd,models,rho,;names=Vector[[string("parameter",i) for i in 1:length(models[m])] for m in 1:length(models)],prop=0.5,paccmin=0.02,ecv=0.1,B=10)
   i=1
   lm=length(models)
   N1=round(Int,N*prop)
@@ -542,7 +541,6 @@ function APMC_KDE_adpt(N,expd,models,rho,;names=Vector[[string("parameter",i) fo
     N2=Int(round((ecv/fit.param[1])^(1/(-fit.param[2]))))
   end
   samp=ABCfit(pts,sig,wts,p,its,dists,epsilon,temp,pacc,names,models)
-  rmprocs(workers())
   return(samp)
 end
 
@@ -614,9 +612,7 @@ function ecv_solver_opt(N1,ker,pts,wts,np,lm,B,ecv)
 end
 
 
-function APMC_KDE_adpt_init(N,expd,models,rho,;names=Vector[[string("parameter",i) for i in 1:length(models[m])] for m in 1:length(models)],prop=0.5,paccmin=0.02,ecv=0.1,B=10,wks=4-length(workers()))
-  addprocs(wks)
-  @everywhere include(joinpath(homedir(),"Box Sync","Dropbox","FishProjectR","julia","juliarc.jl"))
+function APMC_KDE_adpt_init(N,expd,models,rho,;names=Vector[[string("parameter",i) for i in 1:length(models[m])] for m in 1:length(models)],prop=0.5,paccmin=0.02,ecv=0.1,B=10)
   i=1
   lm=length(models)
   N1=round(Int,N*prop)
@@ -770,6 +766,5 @@ function APMC_KDE_adpt_init(N,expd,models,rho,;names=Vector[[string("parameter",
     N1=N2
   end
   samp=ABCfit(pts,sig,wts,p,its,dists,epsilon,temp,pacc,names,models)
-  rmprocs(workers())
   return(samp)
 end
