@@ -1,18 +1,18 @@
-type gsummary
+struct gsummary
   moms::Array{Float64}
   wts::Array{Float64}
   size::Int64
   lens::Array{Float64,1}
   threshold::Float64
 end
- type gsummary_scans
+ struct gsummary_scans
   moms::Array{Float64}
   wts::Array{Float64}
   size::Array{Int64}
   lens::Array{Float64,1}
   threshold::Float64
 end
-type gsummary_cuts
+struct gsummary_cuts
   moms::Array{Float64}
   wts::Array{Float64}
   size::Int64
@@ -20,7 +20,7 @@ type gsummary_cuts
   lens::Array{Float64,1}
   threshold::Float64
 end
-type gsummary_sub
+struct gsummary_sub
   moms::Array{Float64}
   wts::Array{Float64}
   size::Array{Int64,3}
@@ -29,14 +29,14 @@ type gsummary_sub
 end
 
 #model structure
-type Model
+struct Model
   parameters::Array{String,1}
   pdens::Function
   psampler::Function
 end
 
 # ABC algorithm output structure
-type ABCfit
+struct ABCfit
   pts::Array{Any,2}
   sig::Array{Any,2}
   wts::Array{Any,2}
@@ -50,7 +50,7 @@ type ABCfit
   models::Array{Any,1}
 end
 
-# type ABCfit
+# struct ABCfit
 #   pts::Array{Any,2}
 #   sig::Array{Any,2}
 #   wts::Array{Any,2}

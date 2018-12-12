@@ -6,7 +6,7 @@ function cycl(a,b,eps1,eps2,colocs,tf,div,start=6,t0=0,nm=1,mrnas=false)
   out=zeros(div,3+nm)
   fin=max((a*start+b+rand(d1,1)[1]),start)
   out[:,1]=(log(2,fin)-log(2,start)).*(0:(div-1))/(div)+t0
-  out[:,2]=start.*(2.^(out[:,1]-fill(t0,div)))
+  out[:,2]=start.*(2 .^(out[:,1]-fill(t0,div)))
   if mrnas
     out[:,3]=fill(min(max(rand(d2,1)[1],0.0001),1),div)
     sigmat=colocs*out[1,3]*(1-out[1,3])
@@ -49,10 +49,10 @@ function nlm_sampler(x,tf,div,start=6,bias=false)
   else
     #     wts=zeros(div*tf)
     #     for i in 1:tf
-    #     wts[(div*(i-1)+1):(div*i)]=fill(times[i],div).*2.^[0:-1/(div-1):-1]
+    #     wts[(div*(i-1)+1):(div*i)]=fill(times[i],div).*2 .^[0:-1/(div-1):-1]
     #   end
     #     lens=wsample(raw[(100*div+1):((100+tf)*div),2],wts,tf)
-    inds=div*wsample(0:(tf-1),times,tf)+wsample(1:div,2.^collect(0:-1/(div-1):-1),tf)+100*div
+    inds=div*wsample(0:(tf-1),times,tf)+wsample(1:div,2 .^collect(0:-1/(div-1):-1),tf)+100*div
     lens=raw[inds,2]
   end
 end
@@ -96,7 +96,7 @@ function nlm2(a,b,eps1,eps2,tf,div,start=6,col=false)
   end
   d=Uniform(tf-2,tf-1)
   t=rand(d,1)[1]
-  samp=Array{Float64}(length(colony))
+  samp=Array{Float64}(undef,length(colony))
   for i in 1:length(colony)
     if(colony[i]!=0)
       if (colony[i][4]>t)&(colony[i][1][1,1]<t)
@@ -110,65 +110,109 @@ function nlm2(a,b,eps1,eps2,tf,div,start=6,col=false)
   return(samp)
 end
 
-function nlm(params,N,tf,dt,unbiased=true,times=false)
+# function nlm_init(params,N)
+#     a=params[1]
+#     b=params[2]
+#     eps1=params[3]
+#     eps2=params[4]
+#     eps3=params[5]
+#     raw=Array{Float64}(undef,N)
+#     d1=Normal(0.0,eps1)
+#     d2=Normal(0.5,eps2)
+#     if eps3!=0
+#       d3=TruncatedNormal(1.0,eps3,0.0,Inf)
+#     end
+#     starts=fill(b/(2-a),N)
+#     fins=max.(a*starts.+b.+rand(d1,N),starts)
+#     t0=rand(Uniform(0,1),N)
+#     raw[:]=starts.+(fins.-starts).*t0
+#     if eps3==0
+#       grs=fill(1,N)
+#     else
+#       grs=rand(d3,N)
+#     end
+#     div_waits=log.(2,fins./starts).*(1 .-t0)./grs
+#     return starts, fins, raw, grs, div_waits
+# end
+
+function nlm_init(params,N)
+    a=params[1]
+    b=params[2]
+    eps1=params[3]
+    eps2=params[4]
+    eps3=params[5]
+    raw=Array{Float64}(undef,N)
+    d1=Normal(0.0,eps1)
+    d2=Normal(0.5,eps2)
+    if eps3!=0
+      d3=TruncatedNormal(1.0,eps3,0.0,Inf)
+    end
+    d4=Normal(0.0,eps1/(1-(a^2)/4))
+    starts=max.(rand(d2,N).*(fill(2*b/(2-a),N).+rand(d4,N)),fill(0.0,N))
+    fins=max.(a*starts.+b.+rand(d1,N),starts)
+    t0=2 .^rand(Uniform(0,1),N).-fill(1.0,N)
+    raw[:]=starts.+(fins.-starts).*t0
+    if eps3==0
+      grs=fill(1,N)
+    else
+      grs=rand(d3,N)
+    end
+    div_waits=log.(2,fins./starts).*(1 .-t0)./grs
+    return starts, fins, raw, grs, div_waits
+end
+
+function nlm_div!(i,t,dt,raw,div_waits,starts,fins,grs,gf,params,N,unbiased)
   a=params[1]
   b=params[2]
   eps1=params[3]
   eps2=params[4]
   eps3=params[5]
-  gf=fill(2^dt,N)
-  raw=Array{Float64}(N)
   d1=Normal(0.0,eps1)
   d2=Normal(0.5,eps2)
   if eps3!=0
     d3=TruncatedNormal(1.0,eps3,0.0,Inf)
   end
-  #init=Uniform(0.5*b/(2-a),2*b/(2-a))
-  #starts=rand(init,N)
-  starts=fill(b/(2-a),N)
-  fins=max.(a*starts+b+rand(d1,N),starts)
-  t0=rand(Uniform(0,1),N)
-  raw[:]=starts+(fins-starts).*t0
-  if eps3==0
-    grs=fill(1,N)
+  div=min(max(rand(d2),0),1)
+  if unbiased
+    dtr=sample(1:(N+1))
   else
-    grs=rand(d3,N)
+    dtr=i
   end
-  div_waits=log.(2,fins./starts).*(1-t0)./grs
+  if dtr<(N+1)
+    starts[dtr]=fins[i]*(1-div)
+    if eps3!=0
+      grs[dtr]=rand(d3)
+      gf[dtr]=2^(grs[dtr]*dt)
+    end
+    fins[dtr]=max(a*starts[dtr]+b+rand(d1),starts[dtr])
+    raw[dtr]=starts[dtr]*2^(-grs[dtr]*div_waits[i])
+    div_waits[dtr]=div_waits[i]+log(2,fins[dtr]/starts[dtr])/grs[dtr]
+  end
+  if dtr!=i
+    starts[i]=fins[i]*div
+    if eps3!=0
+      grs[i]=rand(d3)
+      gf[i]=2^(grs[i]*dt)
+    end
+    raw[i]=starts[i]*2^(-grs[i]*div_waits[i])
+    fins[i]=max(a*starts[i]+b+rand(d1),starts[i])
+    div_waits[i]=div_waits[i]+log(2,fins[i]/starts[i])/grs[i]
+  end
+  return(div)
+end
+
+function nlm(params,N,tf,dt,unbiased=true,times=false)
+  starts, fins, raw, grs, div_waits =nlm_init(params,N)
+  gf=2 .^(grs.*dt)
   t=0
   while t<tf
     t=t+dt
     for i in 1:N
       div_waits[i]=div_waits[i]-dt
-      if(div_waits[i]<0)
-        div=min(max(rand(d2),0),1)
-        if unbiased
-          dtr=sample(1:(N+1))
-        else
-          dtr=i
-        end
-        if dtr<(N+1)
-          starts[dtr]=fins[i]*(1-div)
-          if eps3!=0
-            grs[dtr]=rand(d3)
-            gf[dtr]=2^(grs[dtr]*dt)
-          end
-          fins[dtr]=max(a*starts[dtr]+b+rand(d1),starts[dtr])
-          raw[dtr]=starts[dtr]*2^(-grs[dtr]*div_waits[i])
-          div_waits[dtr]=div_waits[i]+log(2,fins[dtr]/starts[dtr])/grs[dtr]
-        end
-        if dtr!=i
-          starts[i]=fins[i]*div
-          if eps3!=0
-            grs[i]=rand(d3)
-            gf[i]=2^(grs[i]*dt)
-          end
-          raw[i]=starts[i]*2^(-grs[i]*div_waits[i])
-          fins[i]=max(a*starts[i]+b+rand(d1),starts[i])
-          div_waits[i]=div_waits[i]+log(2,fins[i]/starts[i])/grs[i]
-        end
+      if div_waits[i]<0
+        nlm_div!(i,t,dt,raw,div_waits,starts,fins,grs,gf,params,N,unbiased)
       else
-        raw[i]=raw[i]*gf[i]
+        raw[i]=min(raw[i]*gf[i],fins[i])
       end
     end
   end
@@ -177,6 +221,257 @@ function nlm(params,N,tf,dt,unbiased=true,times=false)
   else
     return raw
   end
+end
+
+function nlm_conv(params,N,tf,dt,unbiased=true)
+  starts, fins, raw, grs, div_waits =nlm_init(params,N)
+  prev=raw[:]
+  curr=raw[:]
+  ks=Array{Float64}(undef,Int(ceil(tf/dt))+1)
+  gf=2 .^(grs.*dt)
+  t=0
+  i=0
+  while t<tf
+    t=t+dt
+    i=i+1
+    for i in 1:N
+      div_waits[i]=div_waits[i]-dt
+      if div_waits[i]<0
+        nlm_div!(i,t,dt,raw,div_waits,starts,fins,grs,gf,params,N,unbiased)
+      else
+        raw[i]=min(raw[i]*gf[i],fins[i])
+      end
+    end
+    prev[:]=curr[:]
+    curr[:]=raw[:]
+    ks[i]=ApproximateTwoSampleKSTest(prev,curr).δ
+  end
+  return(ks)
+end
+
+function nlm_NE(params,N,tf,dt,unbiased=true,times=false)
+    a=params[1]
+    b=params[2]
+    t_NE=params[3]
+    eps1=params[4]
+    eps2=params[5]
+    eps3=params[6]
+    d1=Normal(0.0,eps1)
+    d2=Normal(0.5,eps2)
+    if eps3!=0
+        d3=TruncatedNormal(1.0,eps3,0.0,Inf)
+    end
+    # for i in 1:N
+    #     if t0[i]>1/(1+t_NE)
+    #         raw[i]=fins[i]
+    #     else
+    #         raw[i]=starts[i]+(fins[i]-starts[i]).*t0[i]*(1+t_NE)
+    #     end
+    # end
+    starts, fins, raw, grs, div_waits =nlm_init(params[vcat(1:2,4:6)],N)
+    gf=2 .^(grs.*dt)
+    t=0
+    while t<tf
+        t=t+dt
+        for i in 1:N
+            div_waits[i]=div_waits[i]-dt
+            if div_waits[i]<0
+                div=min(max(rand(d2),0),1)
+                if unbiased
+                    dtr=sample(1:(N+1))
+                else
+                    dtr=i
+                end
+                if dtr<(N+1)
+                    starts[dtr]=fins[i]*(1-div)
+                    if eps3!=0
+                        grs[dtr]=rand(d3)
+                    end
+                    gf[dtr]=2^(grs[dtr]*dt/t_NE)
+                    fins[dtr]=max(a*starts[dtr]+b+rand(d1),starts[dtr])
+                    raw[dtr]=starts[dtr]*2^(-grs[dtr]*div_waits[i])
+                    div_waits[dtr]=div_waits[i]+log(2,fins[dtr]/starts[dtr])/grs[dtr]
+                end
+                if dtr!=i
+                    starts[i]=fins[i]*div
+                    if eps3!=0
+                        grs[i]=rand(d3)
+                    end
+                    gf[i]=2^(grs[i]*dt/t_NE)
+                    raw[i]=starts[i]*2^(-grs[i]*div_waits[i])
+                    fins[i]=max(a*starts[i]+b+rand(d1),starts[i])
+                    div_waits[i]=div_waits[i]+log(2,fins[i]/starts[i])/grs[i]
+                end
+            else
+                if raw[i]<fins[i]
+                    raw[i]=min(raw[i]*gf[i],fins[i])
+                end
+            end
+        end
+    end
+    if times
+        return hcat(starts,fins,div_waits,grs,raw)
+    else
+        return raw
+    end
+end
+
+function nlm_NE_full(params,N,tf,dt,unbiased=true,times=false)
+    a=params[1]
+    b=params[2]
+    t_NE_on=params[3]
+    t_NE_off=params[4]
+    if t_NE_off<t_NE_on
+        return(fill(0.0,N))
+    end
+    gm=params[5]
+    eps1=params[6]
+    eps2=params[7]
+    eps3=params[8]
+    d1=Normal(0.0,eps1)
+    d2=Normal(0.5,eps2)
+    if eps3!=0
+        d3=TruncatedNormal(1.0,eps3,0.0,Inf)
+    end
+    # for i in 1:N
+    #     if t0[i]>1/(1+t_NE)
+    #         raw[i]=fins[i]
+    #     else
+    #         raw[i]=starts[i]+(fins[i]-starts[i]).*t0[i]*(1+t_NE)
+    #     end
+    # end
+    starts, fins, raw, grs, div_waits =nlm_init(params[vcat(1:2,6:8)],N)
+    gf=hcat(2 .^(grs.*dt),2 .^(gm*grs.*dt))
+    k=fill(0.0,N)
+    t=0
+    while t<tf
+        t=t+dt
+        for i in 1:N
+            div_waits[i]=div_waits[i]-dt
+            if div_waits[i]<0
+                div=min(max(rand(d2),0),1)
+                if unbiased
+                    dtr=sample(1:(N+1))
+                else
+                    dtr=i
+                end
+                if dtr<(N+1)
+                    starts[dtr]=fins[i]*(1-div)
+                    if eps3!=0
+                        grs[dtr]=rand(d3)
+                    end
+                    gf[dtr,1]=2^(grs[dtr]*dt/(t_NE_on+gm-gm*t_NE_off))
+                    gf[dtr,2]=2^(gm*grs[dtr]*dt/(t_NE_on+gm-gm*t_NE_off))
+                    fins[dtr]=max(a*starts[dtr]+b+rand(d1),starts[dtr])
+                    raw[dtr]=starts[dtr]*2^(-grs[dtr]*div_waits[i])
+                    k[dtr]=log(2,fins[dtr]/starts[dtr])/grs[dtr]
+                    div_waits[dtr]=div_waits[i]+k[dtr]
+                end
+                if dtr!=i
+                    starts[i]=fins[i]*div
+                    if eps3!=0
+                        grs[i]=rand(d3)
+                    end
+                    gf[i,1]=2^(grs[i]*dt/(t_NE_on+gm-gm*t_NE_off))
+                    gf[i,2]=2^(gm*grs[i]*dt/(t_NE_on+gm-gm*t_NE_off))
+                    raw[i]=starts[i]*2^(-grs[i]*div_waits[i])
+                    fins[i]=max(a*starts[i]+b+rand(d1),starts[i])
+                    k[i]=log(2,fins[i]/starts[i])/grs[i]
+                    div_waits[i]=div_waits[i]+k[i]
+                end
+            else
+                if raw[i]<fins[i]
+                    if (div_waits[i]+dt)<k[i]*(1-t_NE_off)
+                        raw[i]=min(raw[i]*gf[i,2],fins[i])
+                    elseif (div_waits[i]+dt)>k[i]*(1-t_NE_on)
+                        raw[i]=min(raw[i]*gf[i,1],fins[i])
+                    end
+                end
+            end
+        end
+    end
+    if times
+        return hcat(starts,fins,div_waits,grs,raw)
+    else
+        return raw
+    end
+end
+
+function nlm_SE(params,N,tf,dt,unbiased=true,times=false)
+    a=params[1]
+    b=params[2]
+    t_SE=params[3]
+    gm=params[4]
+    eps1=params[5]
+    eps2=params[6]
+    eps3=params[7]
+    d1=Normal(0.0,eps1)
+    d2=Normal(0.5,eps2)
+    if eps3!=0
+        d3=TruncatedNormal(1.0,eps3,0.0,Inf)
+    end
+    # for i in 1:N
+    #     if t0[i]>1/(1+t_NE)
+    #         raw[i]=fins[i]
+    #     else
+    #         raw[i]=starts[i]+(fins[i]-starts[i]).*t0[i]*(1+t_NE)
+    #     end
+    # end
+    starts, fins, raw, grs, div_waits =nlm_init(params[vcat(1:2,5:7)],N)
+    gf=hcat(2 .^(grs.*dt),2 .^(gm*grs.*dt))
+    k=fill(0.0,N)
+    t=0
+    while t<tf
+        t=t+dt
+        for i in 1:N
+            div_waits[i]=div_waits[i]-dt
+            if div_waits[i]<0
+                div=min(max(rand(d2),0),1)
+                if unbiased
+                    dtr=sample(1:(N+1))
+                else
+                    dtr=i
+                end
+                if dtr<(N+1)
+                    starts[dtr]=fins[i]*(1-div)
+                    if eps3!=0
+                        grs[dtr]=rand(d3)
+                    end
+                    gf[dtr,1]=2^(grs[dtr]*dt/(t_SE+gm-gm*t_SE))
+                    gf[dtr,2]=2^(gm*grs[dtr]*dt/(t_SE+gm-gm*t_SE))
+                    fins[dtr]=max(a*starts[dtr]+b+rand(d1),starts[dtr])
+                    raw[dtr]=starts[dtr]*2^(-grs[dtr]*div_waits[i])
+                    k[dtr]=log(2,fins[dtr]/starts[dtr])/grs[dtr]
+                    div_waits[dtr]=div_waits[i]+k[dtr]
+                end
+                if dtr!=i
+                    starts[i]=fins[i]*div
+                    if eps3!=0
+                        grs[i]=rand(d3)
+                    end
+                    gf[i,1]=2^(grs[i]*dt/(t_SE+gm-gm*t_SE))
+                    gf[i,2]=2^(gm*grs[i]*dt/(t_SE+gm-gm*t_SE))
+                    raw[i]=starts[i]*2^(-grs[i]*div_waits[i])
+                    fins[i]=max(a*starts[i]+b+rand(d1),starts[i])
+                    k[i]=log(2,fins[i]/starts[i])/grs[i]
+                    div_waits[i]=div_waits[i]+k[i]
+                end
+            else
+                if raw[i]<fins[i]
+                    if (div_waits[i]+dt)<k[i]*(1-t_SE)
+                        raw[i]=min(raw[i]*gf[i,2],fins[i])
+                    else
+                        raw[i]=min(raw[i]*gf[i,1],fins[i])
+                    end
+                end
+            end
+        end
+    end
+    if times
+        return hcat(starts,fins,div_waits,grs,raw)
+    else
+        return raw
+    end
 end
 
 function nlm_nuc(params,N,tf,dt,unbiased=true,times=false)
@@ -230,7 +525,7 @@ function nlm_nuc(params,N,tf,dt,unbiased=true,times=false)
             fins[dtr,k]=max(a[k]*starts[dtr,k]+b[k]+noise[k],starts[dtr,k])
           end
           gf[dtr,2]=(fins[dtr,2]/starts[dtr,2])^(dt/(log(2,fins[dtr,1]/starts[dtr,1])/grs[dtr]))
-          raw[dtr,:]=starts[dtr,:].*hcat(2^(-grs[dtr]*div_waits[i]),(fins[dtr,2]/starts[dtr,2])^(-div_waits[i]/(log(2,fins[dtr,1]/starts[dtr,1])/grs[dtr])))
+          raw[dtr,:]=starts[dtr,:].*vcat(2^(-grs[dtr]*div_waits[i]),(fins[dtr,2]/starts[dtr,2])^(-div_waits[i]/(log(2,fins[dtr,1]/starts[dtr,1])/grs[dtr])))
           div_waits[dtr]=div_waits[i]+log(2,fins[dtr,1]/starts[dtr,1])/grs[dtr]
         end
         if dtr!=i
@@ -238,6 +533,86 @@ function nlm_nuc(params,N,tf,dt,unbiased=true,times=false)
             starts[i,k]=fins[i,k]*(div[k])
           end
           if eps5!=0
+            grs[i]=rand(d3)
+            gf[i,1]=2^(grs[i]*dt)
+          end
+          noise=rand(d1)
+          for k in 1:2
+            fins[i,k]=max(a[k]*starts[i,k]+b[k]+noise[k],starts[i,k])
+          end
+          gf[i,2]=(fins[i,2]/starts[i,2])^(dt/(log(2,fins[i,1]/starts[i,1])/grs[i]))
+          raw[i,1]=starts[i,1]*2^(-grs[i]*div_waits[i])
+          raw[i,2]=starts[i,2]*(fins[i,2]/starts[i,2])^(-div_waits[i]/(log(2,fins[i,1]/starts[i,1])/grs[i]))
+          div_waits[i]=div_waits[i]+log(2,fins[i,1]/starts[i,1])/grs[i]
+        end
+      else
+        for k in 1:2
+          raw[i,k]=raw[i,k]*gf[i,k]
+        end
+      end
+    end
+  end
+  if times
+    return hcat(starts,fins,div_waits,grs,raw)
+  else
+    return raw
+  end
+end
+
+function nlm_bilinear(params,N,tf,dt,unbiased=true,times=false)
+  a=reshape(params[1:4],2,2)
+  b=reshape(params[5:6],1,2)
+  gf=fill(2^dt,N,2)
+  d1=MvNormal(fill(0.0,2),[params[7]^2 params[7]*params[8]*params[9];params[7]*params[8]*params[9] params[9]^2])
+  d2=MvNormal(fill(0.5,2),[params[10]^2 params[10]*params[11]*params[12];params[10]*params[11]*params[12] params[12]^2])
+  if params[13]!=0
+    d3=TruncatedNormal(1.0,params[13],0.0,Inf)
+  end
+  #init=Uniform(0.5*b/(2-a),2*b/(2-a))
+  #starts=rand(init,N)
+  starts=repmat([b[1]/(2-a[1,1]) b[2]/(2-a[2,2])],N,1)
+  fins=max.(starts*a+repmat(b,N,1)+transpose(rand(d1,N)),starts)
+  t0=rand(Uniform(0,1),N)
+  raw=starts+(fins-starts).*hcat(t0,t0)
+  if params[13]==0
+    grs=fill(1,N)
+  else
+    grs=rand(d3,N)
+  end
+  div_waits=log.(2,fins[:,1]./starts[:,1]).*(1-t0)./grs
+  t=0
+  while t<tf
+    t=t+dt
+    for i in 1:N
+      div_waits[i]=div_waits[i]-dt
+      if(div_waits[i]<0)
+        div=min.(max.(reshape(rand(d2),1,2),0),1)
+        if unbiased
+          dtr=sample(1:(N+1))
+        else
+          dtr=i
+        end
+        if dtr<(N+1)
+          for k in 1:2
+            starts[dtr,k]=fins[i,k]*(1-div[k])
+          end
+          if params[13]!=0
+            grs[dtr]=rand(d3)
+            gf[dtr,1]=2^(grs[dtr]*dt)
+          end
+          noise=rand(d1)
+          for k in 1:2
+            fins[dtr,k]=max(a[k]*starts[dtr,k]+b[k]+noise[k],starts[dtr,k])
+          end
+          gf[dtr,2]=(fins[dtr,2]/starts[dtr,2])^(dt/(log(2,fins[dtr,1]/starts[dtr,1])/grs[dtr]))
+          raw[dtr,:]=starts[dtr,:].*vcat(2^(-grs[dtr]*div_waits[i]),(fins[dtr,2]/starts[dtr,2])^(-div_waits[i]/(log(2,fins[dtr,1]/starts[dtr,1])/grs[dtr])))
+          div_waits[dtr]=div_waits[i]+log(2,fins[dtr,1]/starts[dtr,1])/grs[dtr]
+        end
+        if dtr!=i
+          for k in 1:2
+            starts[i,k]=fins[i,k]*(div[k])
+          end
+          if params[13]!=0
             grs[i]=rand(d3)
             gf[i,1]=2^(grs[i]*dt)
           end
@@ -274,7 +649,7 @@ function nlm_stat(params,N,tf,dt,unbiased=true,times=false)
   d=params[6]
   eps4=params[8]
   gf=fill(2^dt,N)
-  raw=Array{Float64}(N)
+  raw=Array{Float64}(undef,N)
   d1=Normal(0.0,eps1)
   d2=Normal(0.5,eps2)
   if eps3!=0
@@ -356,7 +731,7 @@ function nlm_ext(params,N,tf,dt,unbiased)
   eps1=params[3]
   eps2=params[4]
   gf=2^dt
-  raw=Array{Float64}(N,round(Int,ceil(tf/dt)+1))
+  raw=Array{Float64}(undef,N,round(Int,ceil(tf/dt)+1))
   d1=Normal(0.0,eps1)
   d2=Normal(0.5,eps2)
   init=Uniform(0.5*b/(2-a),2*b/(2-a))
@@ -404,18 +779,18 @@ function nlm_grow(params,N,tf,dt)
   eps1=params[3]
   eps2=params[4]
   N0=max(round(Int,ceil(N/2^(tf))),1)
-  raw=Array{Float64}(N,round(Int,(tf+1)/dt))
+  raw=Array{Float64}(undef,N,round(Int,(tf+1)/dt))
   k=1
   d1=Normal(0.0,eps1)
   d2=Normal(0.5,eps2)
   init=Uniform(0.5*b/(2-a),2*b/(2-a))
-  starts=Array{Float64}(N)
+  starts=Array{Float64}(undef,N)
   starts[1:N0]=rand(init,N0)
-  fins=Array{Float64}(N)
+  fins=Array{Float64}(undef,N)
   fins[1:N0]=max(a*starts[1:N0]+b+rand(d1,N0),starts[1:N0])
   t0=rand(Uniform(0,1),N0)
   raw[1:N0,1]=starts[1:N0]+(fins[1:N0]-starts[1:N0]).*t0
-  div_waits=Array{Float64}(N)
+  div_waits=Array{Float64}(undef,N)
   div_waits[1:N0]=log(2,fins[1:N0]./starts[1:N0]).*(1-t0)
   t=0
   Nt=N0
