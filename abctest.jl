@@ -1,5 +1,6 @@
 using StatsBase
 using Distributions
+using Distributed
 using Plots
 using LsqFit
 import Distributions.rand
@@ -25,7 +26,7 @@ temp=Array{Float64}(undef,5,1000)
 for j in 1:1000
   temp[1,j]=mean(bootstrp[j])
   for i in 2:5
-  temp[i,j]=mean((bootstrp[j]-mean(bootstrp[j])).^i)
+  temp[i,j]=mean((bootstrp[j].-mean(bootstrp[j])).^i)
   end
 end
 for i in 1:5
@@ -36,9 +37,9 @@ expd_lens[2]=length(d2)
 #error function for length distribution using first three moments
 function rho_lens(expd,d2)
   d=nlm(d2,expd[2],30,0.01,true)
-  return(sqrt(mean([((mean(d)-expd[1][1,1])/expd[1][2,1])^2,((mean((d-mean(d)).^2)-expd[1][1,2])/expd[1][2,2])^2,((mean((d-mean(d)).^3)-expd[1][1,3])/expd[1][2,3])^2])))
+  return(sqrt(mean([((mean(d)-expd[1][1,1])/expd[1][2,1])^2,((mean((d.-mean(d)).^2)-expd[1][1,2])/expd[1][2,2])^2,((mean((d.-mean(d)).^3)-expd[1][1,3])/expd[1][2,3])^2])))
 end
-rho_lens(expd_lens,[0.14500452,10.99259240,0.82982153,0.02742845,0.1])
+rho_lens(expd_lens,[0,10,1,0.05,0.1])
 #define model and priors for inference
 model_lens=vcat(Uniform(0,2),Uniform(0,20),Uniform(0,20),Uniform(0,1),Uniform(0,0.2))
 #do inference
@@ -54,7 +55,7 @@ scatter(test_lens.pts[1,end][1,:],test_lens.pts[1,end][2,:])
 model_lens_adder=vcat(Uniform(0,20),Uniform(0,20),Uniform(0,1),Uniform(0,0.2))
 function rho_lens_adder(expd,d2)
   d=nlm(vcat(0,d2),expd[2],30,0.01,true)
-  return(sqrt(mean([((mean(d)-expd[1][1,1])/expd[1][2,1])^2,((mean((d-mean(d)).^2)-expd[1][1,2])/expd[1][2,2])^2,((mean((d-mean(d)).^3)-expd[1][1,3])/expd[1][2,3])^2])))
+  return(sqrt(mean([((mean(d)-expd[1][1,1])/expd[1][2,1])^2,((mean((d.-mean(d)).^2)-expd[1][1,2])/expd[1][2,2])^2,((mean((d.-mean(d)).^3)-expd[1][1,3])/expd[1][2,3])^2])))
 end
 test_lens_adpt=APMC_KDE_adpt_init(100,expd_lens,Vector[model_lens,model_lens_adder],[rho_lens,rho_lens_adder],ecv=0.2,paccmin=0.02)
 # the console output after the fit termiantes should show that model 2 (adder) is favoured
